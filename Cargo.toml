@@ -1,0 +1,8 @@
+[package]
+authors = ["kardeiz <kardeiz@gmail.com>"]
+name = "connector"
+version = "0.1.0"
+
+[dependencies]
+hyper = "0.9"
+log = "0.3.6"
