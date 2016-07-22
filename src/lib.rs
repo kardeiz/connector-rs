@@ -42,6 +42,8 @@ pub mod err {
 pub use hyper::method::Method;
 
 use std::sync::Arc;
+use std::borrow::Cow;
+use std::convert::Into;
 
 #[derive(Debug, Clone)]
 pub struct Connection {
@@ -89,7 +91,7 @@ pub struct Request<'a> {
     headers: Option<hyper::header::Headers>,
     url: hyper::Url,
     method: hyper::method::Method,
-    body: Option<&'a [u8]>
+    body: Option<Cow<'a, [u8]>>
 }
 
 impl<'a> Request<'a> {
@@ -111,13 +113,13 @@ impl<'a> Request<'a> {
         self
     }
 
-    pub fn with_body(mut self, body: &'a [u8]) -> Self {
-        self.body = Some(body);
+    pub fn with_body<T: Into<Cow<'a, [u8]>>>(mut self, body: T) -> Self {
+        self.body = Some(body.into());
         self
     }
 
 
-    pub fn send(self) -> err::Result<Vec<u8>> {
+    pub fn send(self) -> err::Result<hyper::client::Response> {
 
         use std::io::Read;
 
@@ -127,31 +129,13 @@ impl<'a> Request<'a> {
             builder = builder.headers(headers);
         }
 
-        if let Some(body) = self.body {
-            builder = builder.body(body);
+        if let Some(ref body) = self.body {
+            builder = builder.body(&**body);
         }
 
-        let mut response = try!(builder.send());
+        let response = try!(builder.send());
 
-        if !response.status.is_success() {
-            let mut e = String::new();
-            let _ = response.read_to_string(&mut e);
-            if e.is_empty() { e.push_str("Unknown error"); }
-
-            return Err(e.into());
-        }
-
-        let mut buffer = {
-            if let Some(&hyper::header::ContentLength(len)) = response.headers.get() {
-                Vec::with_capacity(len as usize)
-            } else {
-                Vec::new()
-            }
-        };
-
-        let _ = try!(response.read_to_end(&mut buffer));
-
-        Ok(buffer)
+        Ok(response)
 
     }
 
@@ -165,11 +149,23 @@ mod test {
 
         let conn = Connection::new("http://localhost:3000").unwrap();
 
-        let req = conn.request(Method::Get)
-            .with_path("/foo/bar")
-            .with_query(&[("yes", "no")]);
+        let mut response = conn.request(Method::Get)
+            .with_path("src/lib.rs")
+            .with_query(&[("yes", "no")])
+            .send()
+            .unwrap();
 
-        println!("{:?}", &req.url);
+        let mut buffer = {
+            if let Some(&::hyper::header::ContentLength(len)) = response.headers.get() {
+                String::with_capacity(len as usize)
+            } else {
+                String::new()
+            }
+        };
+
+        ::std::io::Read::read_to_string(&mut response, &mut buffer);
+
+        println!("{:?}", &buffer);
 
     }
 }
